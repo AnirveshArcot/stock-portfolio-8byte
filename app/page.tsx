@@ -1,69 +1,136 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Activity, CircleDot, RefreshCw } from "lucide-react";
+import { Card } from "@/components/dahboard/card";
+import { PortfolioFilters } from "@/components/dahboard/filters";
+import { SectorChart } from "@/components/dahboard/chart";
+import { SectorTable } from "@/components/dahboard/table";
+import {
+  calcPortVal,
+  gainCol,
+  money,
+  type presentAsset,
+} from "@/lib/shard_func";
+import { assets as seed } from "./data";
+
+const emptyHoldings: presentAsset[] = seed.map((asset) => ({
+  ...asset,
+  price: null,
+  pe: null,
+  earnings: null,
+  live: false,
+  error: null,
+}));
+
+const colors = ["#53f7ff", "#e7ff51", "#a68cff", "#ff4f87", "#ffae5e", "#55e1a9"];
 
 export default function Home() {
+  const [items, setItems] = useState(emptyHoldings);
+  const [selectedSector, setSelectedSector] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [liveCount, setLiveCount] = useState(0);
+
+  async function refresh() {
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/portfolio", { cache: "no-store" });
+      const data = await response.json();
+
+      setItems(data.assets);
+      setUpdatedAt(data.updateTime);
+      setLiveCount(data.liveCount);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    const intervalId = window.setInterval(refresh, 15_000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const sectors = useMemo(
+    () => ["All", ...Array.from(new Set(items.map((item) => item.sector)))],
+    [items],
+  );
+  const visibleItems = useMemo(
+    () => items.filter((item) =>
+      (selectedSector === "All" || item.sector === selectedSector) &&
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    ),
+    [items, searchQuery, selectedSector],
+  );
+  const liveItems = items.filter((item) => item.live);
+  const totals = calcPortVal(liveItems);
+  const groups = sectors
+    .slice(1)
+    .map((sector) => ({
+      sector,
+      items: visibleItems.filter((item) => item.sector === sector),
+    }))
+    .filter((group) => group.items.length);
+  const allocations = sectors.slice(1).map((sector, index) => ({
+    sector,
+    color: colors[index],
+    value: calcPortVal(liveItems.filter((item) => item.sector === sector)).presentVal,
+  }));
+  const status = liveCount === items.length ? "LIVE" : "DEGRADED";
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="mx-auto min-h-svh max-w-[1560px] px-4 py-4 sm:px-8 sm:py-8">
+      <section className="grid gap-3 lg:grid-cols-4">
+        <Card
+          label="Live portfolio value"
+          value={liveCount ? money.format(totals.presentVal) : "—"}
+          subtext={`${liveCount}/${items.length} price feeds online`}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+        <Card
+          label="Capital Invested"
+          value={money.format(totals.investment)}
+        />
+        <Card
+          label="Unrealised return"
+          value={liveCount ? `${totals.gain >= 0 ? "+" : ""}${money.format(totals.gain)}` : "—"}
+          subtext={liveCount ? `${(totals.gain / totals.investment * 100).toFixed(2)}% live positions` : "Waiting for source data"}
+          tone={gainCol(totals.gain)}
+        />
+        <SectorChart allocations={allocations} hasLivePrices={Boolean(liveCount)} />
+      </section>
+
+      <PortfolioFilters
+        sectors={sectors}
+        selectedSector={selectedSector}
+        searchQuery={searchQuery}
+        secChan={setSelectedSector}
+        searchChan={setSearchQuery}
+      />
+
+      <section className="mt-8">
+
+        <hr className="border-0 border-t border-primary/30" />
+        <div className="mt-4 space-y-4">
+          {groups.map((group) => (
+            <SectorTable
+              key={group.sector}
+              sector={group.sector}
+              items={group.items}
+              totalInvestment={totals.investment}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          ))}
+          {!groups.length && (
+            <div className="rounded-xl border border-dashed border-border bg-card/70 py-10 text-center text-sm text-muted-foreground">
+              No holdings match that signal.
+            </div>
+          )}
         </div>
-      </main>
-    </div>
+      </section>
+
+    </main>
   );
 }
