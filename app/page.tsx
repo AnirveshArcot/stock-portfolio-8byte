@@ -93,6 +93,7 @@ export default function Home() {
         <Card
           label="Capital Invested"
           value={money.format(totals.investment)}
+          subtext="Static cost basis"
         />
         <Card
           label="Unrealised return"
