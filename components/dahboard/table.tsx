@@ -103,7 +103,7 @@ export function SectorTable({ sector, items, totalInvestment }: SectorTableProps
 
   return (
     <section className="overflow-hidden rounded-xl border border-border/90 bg-card/85 text-card-foreground">
-      <div className="flex flex-col items-start gap-2 border-b border-border bg-[#101a2b] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col items-start gap-2 border-b border-border bg-secondary px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <span className="font-display text-lg font-semibold text-primary">
           {sector.toUpperCase()}
         </span>
