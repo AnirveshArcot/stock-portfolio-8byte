@@ -1,7 +1,6 @@
 import { assets } from "../../data";
 
 export const dynamic = "force-dynamic";
-const cacheTime = 15_000
 const serpApiCooldown = 60 * 60 * 1_000;
 type PortfolioResp = {
     assets : Array<(typeof assets)[number] & { price: number | null; pe: number | null; earnings: number | null; live: boolean; error: string | null }>;
@@ -9,7 +8,8 @@ type PortfolioResp = {
     liveCount : number;
     sourceFailure: boolean;
 }
-let cached: {expiresAt:number,value:PortfolioResp} | null = null;
+let cached: PortfolioResp = { assets: assets.map(asset => ({ ...asset, price: null, pe: null, earnings: null, live: false, error: null })), updateTime: new Date().toISOString(), liveCount: 0, sourceFailure: false };
+let refreshing = false;
 let lastSerpApiRequestAt = 0;
 
 const number = (value?: string) => {
@@ -121,18 +121,14 @@ const refreshPortfolio = async (): Promise<PortfolioResp> => {
     sourceFailure: updated.some(asset => asset.error !== null),
   };
 };
-
-
+const refresh = () => {
+  if (refreshing) return;
+  refreshing = true;
+  void refreshPortfolio().then(value => { cached = value; }).catch(() => {}).finally(() => { refreshing = false; });
+};
+refresh();
+setInterval(refresh, 15_000);
 
 export async function GET() {
-  const now = Date.now();
-  if (cached && cached.expiresAt > now) {
-    return Response.json(cached.value, { headers: { "Cache-Control": "no-store", "cache-status": "HIT" } });
-  }
-
-  const value = await refreshPortfolio().then(value => {
-    cached = { value, expiresAt: Date.now() + cacheTime };
-    return value;
-  });
-  return Response.json(value, { headers: { "Cache-Control": "no-store", "cache-status" : "MISS" } });
+  return Response.json(cached, { headers: { "Cache-Control": "no-store" } });
 }
